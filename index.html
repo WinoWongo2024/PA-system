@@ -3,29 +3,85 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PA System Simulator</title>
+  <title>Station PA Simulator</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #0f172a; color: #f8fafc; }
-    .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #334155; }
-    h1 { color: #38bdf8; }
-    button { background: #0284c7; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; width: 100%; max-width: 300px; }
-    button:disabled { background: #64748b; cursor: not-allowed; }
-    .status { margin-top: 10px; font-weight: 500; color: #38bdf8; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+      background-color: #0f172a;
+      color: #f8fafc;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #38bdf8;
+      font-size: 1.8rem;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      border: 1px solid #334155;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    h3 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      color: #f1f5f9;
+    }
+    button {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 1rem;
+      width: 100%;
+      transition: background 0.2s ease;
+    }
+    button:active {
+      background: #0369a1;
+    }
+    button:disabled {
+      background: #475569;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: #38bdf8;
+      font-family: monospace;
+      min-height: 1.2em;
+    }
+    .error {
+      color: #f87171;
+    }
   </style>
 </head>
 <body>
 
-  <h1>🚆 PA System Simulator</h1>
-  <div id="announcement-list">Loading announcements...</div>
+  <h1>🚆 Station PA Control</h1>
+  <div id="announcement-list">Loading announcements configuration...</div>
 
   <script>
-    const CONFIG_URL = 'https://raw.githubusercontent.com/WinoWongo2024/PA-system/announcements.json';
+    // Relative path to JSON in root folder
+    const CONFIG_URL = './announcements.json';
+    // Relative path to audio folder (case-sensitive to match repository folder 'Audio')
+    const AUDIO_BASE_URL = './Audio/';
 
     async function loadApp() {
+      const container = document.getElementById('announcement-list');
       try {
         const res = await fetch(CONFIG_URL);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: Could not load ${CONFIG_URL}`);
+        }
         const data = await res.json();
-        const container = document.getElementById('announcement-list');
+        
         container.innerHTML = '';
 
         data.announcements.forEach(item => {
@@ -33,56 +89,54 @@
           card.className = 'card';
           card.innerHTML = `
             <h3>${item.title}</h3>
-            <button id="btn-${item.id}" onclick="handlePlayClick('${data.baseUrl}', ${JSON.stringify(item.sequence)}, '${item.id}')">▶ Play Announcement</button>
+            <button id="btn-${item.id}" onclick="handlePlayClick(${JSON.stringify(item.sequence)}, '${item.id}')">▶ Play Announcement</button>
             <div id="status-${item.id}" class="status"></div>
           `;
           container.appendChild(card);
         });
       } catch (err) {
-        document.getElementById('announcement-list').innerText = 'Failed to load configuration. Check announcements.json.';
+        console.error(err);
+        container.innerHTML = `<div class="card error">❌ <strong>Error:</strong> ${err.message}<br><br>Ensure <code>announcements.json</code> is saved in the root directory.</div>`;
       }
     }
 
-    async function handlePlayClick(baseUrl, filenames, id) {
+    async function handlePlayClick(filenames, id) {
       const btn = document.getElementById(`btn-${id}`);
       const status = document.getElementById(`status-${id}`);
       btn.disabled = true;
 
-      // Create audio objects for each file
-      const audioQueue = filenames.map(file => new Audio(baseUrl + file));
+      // Build full file path list
+      const queue = filenames.map(file => AUDIO_BASE_URL + file);
 
-      // 1. Unlock playback by triggering play/pause on the first clip during the user tap
-      try {
-        await audioQueue[0].play();
-        audioQueue[0].pause();
-        audioQueue[0].currentTime = 0;
-      } catch (e) {
-        console.warn('Audio unlock warning:', e);
-      }
-
-      // 2. Play sequence back-to-back
-      for (let i = 0; i < audioQueue.length; i++) {
-        const audio = audioQueue[i];
-        status.innerText = `Playing clip ${i + 1} of ${audioQueue.length}: ${decodeURIComponent(filenames[i])}`;
+      for (let i = 0; i < queue.length; i++) {
+        const filePath = queue[i];
+        const fileName = decodeURIComponent(filenames[i]);
+        
+        status.innerText = `[${i + 1}/${queue.length}] Playing: ${fileName}`;
 
         await new Promise((resolve) => {
+          const audio = new Audio(filePath);
+
           audio.onended = resolve;
-          audio.onerror = (e) => {
-            console.error('Playback error on file:', filenames[i], e);
-            resolve(); // Skip missing clip gracefully
-          };
           
+          audio.onerror = (e) => {
+            console.error('Audio file failed to play:', filePath, e);
+            status.innerText = `⚠️ Skipping missing clip: ${fileName}`;
+            setTimeout(resolve, 1000); // Wait 1 sec before skipping missing clip
+          };
+
           audio.play().catch(err => {
-            console.error('Play blocked:', err);
+            console.error('Browser playback error:', err);
             resolve();
           });
         });
       }
 
-      status.innerText = '✅ Announcement finished';
+      status.innerText = '✅ Announcement sequence completed';
       btn.disabled = false;
     }
 
+    // Initialize on page load
     loadApp();
   </script>
 </body>
