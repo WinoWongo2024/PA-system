@@ -35,7 +35,7 @@
       font-family: "Courier New", Courier, monospace;
       font-size: 1.25rem;
       font-weight: bold;
-      color: #f59e0b; /* Authentic LED orange */
+      color: #f59e0b;
       text-shadow: 0 0 8px rgba(245, 158, 11, 0.8), 0 0 2px #d97706;
       background: #050505;
       padding: 12px;
@@ -47,9 +47,7 @@
       overflow: hidden;
       white-space: nowrap;
     }
-    .led-blinking {
-      animation: blink 1s infinite;
-    }
+    .led-blinking { animation: blink 1s infinite; }
     @keyframes blink {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.3; }
@@ -157,23 +155,27 @@
     const CONFIG_URL = './announcements.json';
     const AUDIO_BASE_URL = './Audio/';
 
-    // Web Audio API Audio Context & Reverb Nodes
+    // Global Audio Context for Echo Engine
     let audioCtx = null;
 
-    function initAudioContext() {
+    async function unlockAudioContext() {
       if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
       }
       if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+        await audioCtx.resume();
+        console.log('AudioContext unmuted & resumed!');
       }
     }
 
-    // Function to process raw sound through station echo/reverb
     async function playAudioWithStationEcho(url) {
-      initAudioContext();
+      // Ensure engine is active
+      await unlockAudioContext();
 
       const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
       const arrayBuffer = await response.arrayBuffer();
       const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
@@ -181,33 +183,33 @@
         const source = audioCtx.createBufferSource();
         source.buffer = decodedBuffer;
 
-        // 1. Direct (Dry) Audio Path
+        // 1. Main Direct Voice Path (Dry signal)
         const dryGain = audioCtx.createGain();
-        dryGain.gain.value = 1.0;
+        dryGain.gain.value = 1.0; // 100% main voice volume
 
-        // 2. Echo (Wet) Station Reverb Path
+        // 2. Station Reverb/Echo Path (Wet signal)
         const delay = audioCtx.createDelay();
-        delay.delayTime.value = 0.12; // 120ms delay bounce
+        delay.delayTime.value = 0.15; // 150ms echo bounce
 
         const feedback = audioCtx.createGain();
-        feedback.gain.value = 0.35; // Echo tail fade
+        feedback.gain.value = 0.3; // Echo tail volume
 
         const filter = audioCtx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 2200; // Muffle echo slightly to simulate distance
+        filter.frequency.value = 3000;
 
         const wetGain = audioCtx.createGain();
-        wetGain.gain.value = 0.45; // Volume of echo relative to main voice
+        wetGain.gain.value = 0.35; // Echo mix volume
 
-        // Routing connections
+        // Wiring standard audio output
         source.connect(dryGain);
         dryGain.connect(audioCtx.destination);
 
-        // Feedback Loop for Station Concourse Echo
+        // Wiring echo delay loop
         source.connect(delay);
         delay.connect(filter);
         filter.connect(feedback);
-        feedback.connect(delay); // Loop back
+        feedback.connect(delay);
         filter.connect(wetGain);
         wetGain.connect(audioCtx.destination);
 
@@ -243,7 +245,9 @@
           status.id = `status-${item.id}`;
           status.className = 'status';
 
-          btn.addEventListener('click', () => {
+          btn.addEventListener('click', async () => {
+            // Unlock audio context directly on user tap
+            await unlockAudioContext();
             handlePlayClick(item.sequence, item.id, item.title);
           });
 
@@ -264,7 +268,6 @@
       const status = document.getElementById(`status-${id}`);
       btn.disabled = true;
 
-      // Update LED Screen to Announcement Mode
       ledDisplay.classList.add('led-blinking');
       ledDisplay.innerText = `📢 ANNOUNCEMENT: ${title.toUpperCase()}`;
 
@@ -272,11 +275,10 @@
         const file = filenames[i];
         const fullPath = AUDIO_BASE_URL + file;
         
-        console.log(`[Clip ${i + 1}/${filenames.length}] Path: ${fullPath}`);
+        console.log(`[Clip ${i + 1}/${filenames.length}] Playing via Echo Engine: ${fullPath}`);
         status.innerText = `Playing ${i + 1}/${filenames.length}: ${file}`;
 
         try {
-          // Play clip processed with Web Audio Station Echo
           await playAudioWithStationEcho(fullPath);
           console.log(`FINISHED: ${file}`);
         } catch (err) {
@@ -289,7 +291,6 @@
       console.log(`--- Finished Sequence ---`);
       status.innerText = '✅ Completed';
       
-      // Reset LED Board to live station display
       ledDisplay.classList.remove('led-blinking');
       ledDisplay.innerText = `23:35 BATH SPA - PLATFORM 1`;
       
