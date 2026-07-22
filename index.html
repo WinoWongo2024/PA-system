@@ -68,9 +68,7 @@
   <div id="announcement-list">Loading announcements configuration...</div>
 
   <script>
-    // Relative path to JSON in root folder
     const CONFIG_URL = './announcements.json';
-    // Relative path to audio folder (case-sensitive to match repository folder 'Audio')
     const AUDIO_BASE_URL = './Audio/';
 
     async function loadApp() {
@@ -96,7 +94,7 @@
         });
       } catch (err) {
         console.error(err);
-        container.innerHTML = `<div class="card error">❌ <strong>Error:</strong> ${err.message}<br><br>Ensure <code>announcements.json</code> is saved in the root directory.</div>`;
+        container.innerHTML = `<div class="card error">❌ <strong>Error:</strong> ${err.message}</div>`;
       }
     }
 
@@ -105,29 +103,28 @@
       const status = document.getElementById(`status-${id}`);
       btn.disabled = true;
 
-      // Build full file path list
-      const queue = filenames.map(file => AUDIO_BASE_URL + file);
-
-      for (let i = 0; i < queue.length; i++) {
-        const filePath = queue[i];
-        const fileName = decodeURIComponent(filenames[i]);
+      for (let i = 0; i < filenames.length; i++) {
+        // Decode first in case filenames contain %20, then cleanly encode for URL fetching
+        const rawFileName = decodeURIComponent(filenames[i]);
+        const safeFilePath = AUDIO_BASE_URL + encodeURIComponent(rawFileName);
         
-        status.innerText = `[${i + 1}/${queue.length}] Playing: ${fileName}`;
+        status.innerText = `[${i + 1}/${filenames.length}] Playing: ${rawFileName}`;
 
         await new Promise((resolve) => {
-          const audio = new Audio(filePath);
+          const audio = new Audio(safeFilePath);
 
           audio.onended = resolve;
           
           audio.onerror = (e) => {
-            console.error('Audio file failed to play:', filePath, e);
-            status.innerText = `⚠️ Skipping missing clip: ${fileName}`;
-            setTimeout(resolve, 1000); // Wait 1 sec before skipping missing clip
+            console.error('Audio file failed to play:', safeFilePath, e);
+            status.innerText = `⚠️ Missing/Failed clip: ${rawFileName}`;
+            setTimeout(resolve, 1200); // Wait briefly then move to next
           };
 
           audio.play().catch(err => {
-            console.error('Browser playback error:', err);
-            resolve();
+            console.error('Browser playback blocked or failed:', err);
+            status.innerText = `❌ Error playing: ${rawFileName}`;
+            setTimeout(resolve, 1200);
           });
         });
       }
@@ -136,7 +133,6 @@
       btn.disabled = false;
     }
 
-    // Initialize on page load
     loadApp();
   </script>
 </body>
