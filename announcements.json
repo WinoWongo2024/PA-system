@@ -1,0 +1,17 @@
+{
+  "baseUrl": "https://raw.githubusercontent.com/WinoWongo2024/PA-system/main/Audio/",
+  "announcements": [
+    {
+      "id": "ann_2335_bath",
+      "title": "23:35 Service to Bath Spa",
+      "sequence": [
+        "Train%20intro.m4a",
+        "One.m4a",
+        "Is%20the.m4a",
+        "Time%2023:35.m4a",
+        "Service%20to.m4a",
+        "Bath%20spa.m4a"
+      ]
+    }
+  ]
+}
