@@ -3,17 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Station PA Simulator</title>
+  <title>Station PA & Display Simulator</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       padding: 20px;
-      background-color: #0f172a;
+      background-color: #0b0f19;
       color: #f8fafc;
-      max-width: 600px;
+      max-width: 650px;
       margin: 0 auto;
     }
     h1 { color: #38bdf8; font-size: 1.8rem; margin-bottom: 20px; }
+
+    /* LED Board Display Styling */
+    .led-board {
+      background-color: #000;
+      border: 4px solid #1e293b;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+    }
+    .led-header {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+    .led-screen {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 1.25rem;
+      font-weight: bold;
+      color: #f59e0b; /* Authentic LED orange */
+      text-shadow: 0 0 8px rgba(245, 158, 11, 0.8), 0 0 2px #d97706;
+      background: #050505;
+      padding: 12px;
+      border-radius: 4px;
+      border: 1px solid #262626;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .led-blinking {
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
     .card {
       background: #1e293b;
       padding: 20px;
@@ -56,13 +97,12 @@
       font-family: monospace;
       font-size: 0.75rem;
       color: #4ade80;
-      max-height: 200px;
+      max-height: 180px;
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-all;
     }
     .log-err { color: #f87171; }
-    .log-warn { color: #fbbf24; }
     .clear-btn {
       background: #334155;
       color: #cbd5e1;
@@ -76,6 +116,13 @@
 <body>
 
   <h1>🚆 Station PA Control</h1>
+
+  <!-- LED Departure Display Screen -->
+  <div class="led-board">
+    <div class="led-header">Platform 1 Departure Board</div>
+    <div id="led-display" class="led-screen">READY FOR DEPARTURE</div>
+  </div>
+
   <div id="announcement-list">Loading configuration...</div>
 
   <div class="log-container">
@@ -88,12 +135,12 @@
 
   <script>
     const logBox = document.getElementById('console-log');
+    const ledDisplay = document.getElementById('led-display');
     
     function appendLog(msg, type = 'info') {
       const time = new Date().toLocaleTimeString();
       const div = document.createElement('div');
       if (type === 'error') div.className = 'log-err';
-      if (type === 'warn') div.className = 'log-warn';
       div.innerText = `[${time}] ${msg}`;
       logBox.appendChild(div);
       logBox.scrollTop = logBox.scrollHeight;
@@ -103,22 +150,77 @@
 
     const origLog = console.log;
     const origErr = console.error;
-    const origWarn = console.warn;
 
     console.log = (...args) => { origLog(...args); appendLog(args.join(' '), 'info'); };
     console.error = (...args) => { origErr(...args); appendLog(args.join(' '), 'error'); };
-    console.warn = (...args) => { origWarn(...args); appendLog(args.join(' '), 'warn'); };
 
     const CONFIG_URL = './announcements.json';
     const AUDIO_BASE_URL = './Audio/';
+
+    // Web Audio API Audio Context & Reverb Nodes
+    let audioCtx = null;
+
+    function initAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // Function to process raw sound through station echo/reverb
+    async function playAudioWithStationEcho(url) {
+      initAudioContext();
+
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+      return new Promise((resolve) => {
+        const source = audioCtx.createBufferSource();
+        source.buffer = decodedBuffer;
+
+        // 1. Direct (Dry) Audio Path
+        const dryGain = audioCtx.createGain();
+        dryGain.gain.value = 1.0;
+
+        // 2. Echo (Wet) Station Reverb Path
+        const delay = audioCtx.createDelay();
+        delay.delayTime.value = 0.12; // 120ms delay bounce
+
+        const feedback = audioCtx.createGain();
+        feedback.gain.value = 0.35; // Echo tail fade
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 2200; // Muffle echo slightly to simulate distance
+
+        const wetGain = audioCtx.createGain();
+        wetGain.gain.value = 0.45; // Volume of echo relative to main voice
+
+        // Routing connections
+        source.connect(dryGain);
+        dryGain.connect(audioCtx.destination);
+
+        // Feedback Loop for Station Concourse Echo
+        source.connect(delay);
+        delay.connect(filter);
+        filter.connect(feedback);
+        feedback.connect(delay); // Loop back
+        filter.connect(wetGain);
+        wetGain.connect(audioCtx.destination);
+
+        source.onended = resolve;
+        source.start(0);
+      });
+    }
 
     async function loadApp() {
       console.log('Fetching configuration from: ' + CONFIG_URL);
       const container = document.getElementById('announcement-list');
       try {
         const res = await fetch(CONFIG_URL);
-        console.log(`Fetch HTTP status: ${res.status}`);
-        
         if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch ${CONFIG_URL}`);
         
         const data = await res.json();
@@ -126,7 +228,7 @@
         
         container.innerHTML = '';
 
-        data.announcements.forEach((item, index) => {
+        data.announcements.forEach((item) => {
           const card = document.createElement('div');
           card.className = 'card';
           
@@ -141,10 +243,8 @@
           status.id = `status-${item.id}`;
           status.className = 'status';
 
-          // Clean event listener directly in JS
           btn.addEventListener('click', () => {
-            console.log('>>> BUTTON CLICK DETECTED! <<<');
-            handlePlayClick(item.sequence, item.id);
+            handlePlayClick(item.sequence, item.id, item.title);
           });
 
           card.appendChild(title);
@@ -158,11 +258,15 @@
       }
     }
 
-    async function handlePlayClick(filenames, id) {
+    async function handlePlayClick(filenames, id, title) {
       console.log(`Starting sequence playback for ID: ${id}`);
       const btn = document.getElementById(`btn-${id}`);
       const status = document.getElementById(`status-${id}`);
       btn.disabled = true;
+
+      // Update LED Screen to Announcement Mode
+      ledDisplay.classList.add('led-blinking');
+      ledDisplay.innerText = `📢 ANNOUNCEMENT: ${title.toUpperCase()}`;
 
       for (let i = 0; i < filenames.length; i++) {
         const file = filenames[i];
@@ -171,34 +275,24 @@
         console.log(`[Clip ${i + 1}/${filenames.length}] Path: ${fullPath}`);
         status.innerText = `Playing ${i + 1}/${filenames.length}: ${file}`;
 
-        await new Promise((resolve) => {
-          const audio = new Audio(fullPath);
-
-          audio.onplay = () => {
-            console.log(`SUCCESS: Playing ${file}`);
-          };
-
-          audio.onended = () => {
-            console.log(`FINISHED: ${file}`);
-            resolve();
-          };
-
-          audio.onerror = (e) => {
-            const errCode = audio.error ? audio.error.code : 'unknown';
-            console.error(`FAILED: ${fullPath} (Error Code: ${errCode})`);
-            status.innerText = `⚠️ Failed clip: ${file}`;
-            setTimeout(resolve, 1000);
-          };
-
-          audio.play().catch(err => {
-            console.error(`PLAY BLOCKED: ${err.name} - ${err.message}`);
-            setTimeout(resolve, 1000);
-          });
-        });
+        try {
+          // Play clip processed with Web Audio Station Echo
+          await playAudioWithStationEcho(fullPath);
+          console.log(`FINISHED: ${file}`);
+        } catch (err) {
+          console.error(`FAILED: ${fullPath} - ${err.message}`);
+          status.innerText = `⚠️ Failed clip: ${file}`;
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
 
       console.log(`--- Finished Sequence ---`);
       status.innerText = '✅ Completed';
+      
+      // Reset LED Board to live station display
+      ledDisplay.classList.remove('led-blinking');
+      ledDisplay.innerText = `23:35 BATH SPA - PLATFORM 1`;
+      
       btn.disabled = false;
     }
 
