@@ -4,12 +4,12 @@
       "id": "ann_2335_bath",
       "title": "23:35 Service to Bath Spa",
       "sequence": [
-        "Train intro.m4a",
+        "Train_intro.m4a",
         "One.m4a",
-        "Is the.m4a",
-        "Time 23:35.m4a",
-        "Service to.m4a",
-        "Bath spa.m4a"
+        "Is_The.m4a",
+        "Time_2335.m4a",
+        "Service_to.m4a",
+        "Bath_spa.m4a"
       ]
     }
   ]
