@@ -22,7 +22,7 @@
       border-radius: 8px;
       padding: 16px;
       margin-bottom: 24px;
-      box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.25);
     }
     .led-header {
       font-size: 0.75rem;
@@ -31,26 +31,38 @@
       letter-spacing: 2px;
       margin-bottom: 8px;
     }
-    .led-screen {
+    
+    /* Marquee Container */
+    .led-screen-container {
+      background: #050505;
+      padding: 12px;
+      border-radius: 4px;
+      border: 1px solid #262626;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .led-text {
       font-family: "Courier New", Courier, monospace;
       font-size: 1.25rem;
       font-weight: bold;
       color: #f59e0b;
       text-shadow: 0 0 8px rgba(245, 158, 11, 0.8), 0 0 2px #d97706;
-      background: #050505;
-      padding: 12px;
-      border-radius: 4px;
-      border: 1px solid #262626;
-      min-height: 48px;
-      display: flex;
-      align-items: center;
-      overflow: hidden;
       white-space: nowrap;
+      position: absolute;
     }
-    .led-blinking { animation: blink 1s infinite; }
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
+
+    /* Continuous Scrolling Animation */
+    .scroll-active {
+      animation: marquee 10s linear infinite;
+    }
+
+    @keyframes marquee {
+      0% { transform: translateX(100%); }
+      100% { transform: translateX(-100%); }
     }
 
     .card {
@@ -115,10 +127,12 @@
 
   <h1>🚆 Station PA Control</h1>
 
-  <!-- LED Departure Display Screen -->
+  <!-- LED Departure Display Board -->
   <div class="led-board">
     <div class="led-header">Platform 1 Departure Board</div>
-    <div id="led-display" class="led-screen">READY FOR DEPARTURE</div>
+    <div class="led-screen-container">
+      <div id="led-text" class="led-text">23:35 BATH SPA - PLATFORM 1</div>
+    </div>
   </div>
 
   <div id="announcement-list">Loading configuration...</div>
@@ -133,7 +147,7 @@
 
   <script>
     const logBox = document.getElementById('console-log');
-    const ledDisplay = document.getElementById('led-display');
+    const ledText = document.getElementById('led-text');
     
     function appendLog(msg, type = 'info') {
       const time = new Date().toLocaleTimeString();
@@ -154,69 +168,6 @@
 
     const CONFIG_URL = './announcements.json';
     const AUDIO_BASE_URL = './Audio/';
-
-    // Global Audio Context for Echo Engine
-    let audioCtx = null;
-
-    async function unlockAudioContext() {
-      if (!audioCtx) {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        audioCtx = new AudioContextClass();
-      }
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-        console.log('AudioContext unmuted & resumed!');
-      }
-    }
-
-    async function playAudioWithStationEcho(url) {
-      // Ensure engine is active
-      await unlockAudioContext();
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-      return new Promise((resolve) => {
-        const source = audioCtx.createBufferSource();
-        source.buffer = decodedBuffer;
-
-        // 1. Main Direct Voice Path (Dry signal)
-        const dryGain = audioCtx.createGain();
-        dryGain.gain.value = 1.0; // 100% main voice volume
-
-        // 2. Station Reverb/Echo Path (Wet signal)
-        const delay = audioCtx.createDelay();
-        delay.delayTime.value = 0.15; // 150ms echo bounce
-
-        const feedback = audioCtx.createGain();
-        feedback.gain.value = 0.3; // Echo tail volume
-
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 3000;
-
-        const wetGain = audioCtx.createGain();
-        wetGain.gain.value = 0.35; // Echo mix volume
-
-        // Wiring standard audio output
-        source.connect(dryGain);
-        dryGain.connect(audioCtx.destination);
-
-        // Wiring echo delay loop
-        source.connect(delay);
-        delay.connect(filter);
-        filter.connect(feedback);
-        feedback.connect(delay);
-        filter.connect(wetGain);
-        wetGain.connect(audioCtx.destination);
-
-        source.onended = resolve;
-        source.start(0);
-      });
-    }
 
     async function loadApp() {
       console.log('Fetching configuration from: ' + CONFIG_URL);
@@ -245,9 +196,7 @@
           status.id = `status-${item.id}`;
           status.className = 'status';
 
-          btn.addEventListener('click', async () => {
-            // Unlock audio context directly on user tap
-            await unlockAudioContext();
+          btn.addEventListener('click', () => {
             handlePlayClick(item.sequence, item.id, item.title);
           });
 
@@ -268,31 +217,48 @@
       const status = document.getElementById(`status-${id}`);
       btn.disabled = true;
 
-      ledDisplay.classList.add('led-blinking');
-      ledDisplay.innerText = `📢 ANNOUNCEMENT: ${title.toUpperCase()}`;
+      // Start Scrolling LED Marquee
+      ledText.innerText = `📢 ANNOUNCEMENT IN PROGRESS: ${title.toUpperCase()} -- CALLING AT ALL STATIONS --`;
+      ledText.classList.add('scroll-active');
 
       for (let i = 0; i < filenames.length; i++) {
         const file = filenames[i];
         const fullPath = AUDIO_BASE_URL + file;
         
-        console.log(`[Clip ${i + 1}/${filenames.length}] Playing via Echo Engine: ${fullPath}`);
+        console.log(`[Clip ${i + 1}/${filenames.length}] Path: ${fullPath}`);
         status.innerText = `Playing ${i + 1}/${filenames.length}: ${file}`;
 
-        try {
-          await playAudioWithStationEcho(fullPath);
-          console.log(`FINISHED: ${file}`);
-        } catch (err) {
-          console.error(`FAILED: ${fullPath} - ${err.message}`);
-          status.innerText = `⚠️ Failed clip: ${file}`;
-          await new Promise(r => setTimeout(r, 1000));
-        }
+        await new Promise((resolve) => {
+          const audio = new Audio(fullPath);
+
+          audio.onplay = () => {
+            console.log(`Playing: ${file}`);
+          };
+
+          audio.onended = () => {
+            console.log(`Finished: ${file}`);
+            resolve();
+          };
+
+          audio.onerror = (e) => {
+            console.error(`FAILED: ${fullPath}`);
+            status.innerText = `⚠️ Failed clip: ${file}`;
+            setTimeout(resolve, 1000);
+          };
+
+          audio.play().catch(err => {
+            console.error(`PLAY BLOCKED: ${err.message}`);
+            setTimeout(resolve, 1000);
+          });
+        });
       }
 
       console.log(`--- Finished Sequence ---`);
       status.innerText = '✅ Completed';
       
-      ledDisplay.classList.remove('led-blinking');
-      ledDisplay.innerText = `23:35 BATH SPA - PLATFORM 1`;
+      // Stop Marquee and Reset LED Board
+      ledText.classList.remove('scroll-active');
+      ledText.innerText = `23:35 BATH SPA - PLATFORM 1`;
       
       btn.disabled = false;
     }
