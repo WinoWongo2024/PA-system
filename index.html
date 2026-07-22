@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PA System Simulator</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #0f172a; color: #f8fafc; }
+    .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #334155; }
+    h1 { color: #38bdf8; }
+    button { background: #0284c7; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; }
+    button:disabled { background: #64748b; cursor: not-allowed; }
+    #status { margin-top: 10px; font-style: italic; color: #94a3b8; }
+  </style>
+</head>
+<body>
+
+  <h1>🚆 PA System Simulator</h1>
+  <div id="announcement-list">Loading announcements...</div>
+
+  <script>
+    const CONFIG_URL = 'https://raw.githubusercontent.com/WinoWongo2024/PA-system/main/announcements.json';
+
+    async function loadApp() {
+      try {
+        const res = await fetch(CONFIG_URL);
+        const data = await res.json();
+        const container = document.getElementById('announcement-list');
+        container.innerHTML = '';
+
+        data.announcements.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <h3>${item.title}</h3>
+            <button id="btn-${item.id}" onclick="playSequence('${data.baseUrl}', ${JSON.stringify(item.sequence)}, '${item.id}')">▶ Play Announcement</button>
+            <div id="status-${item.id}"></div>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        document.getElementById('announcement-list').innerText = 'Failed to load configuration. Check your announcements.json URL.';
+      }
+    }
+
+    async function playSequence(baseUrl, filenames, id) {
+      const btn = document.getElementById(`btn-${id}`);
+      const status = document.getElementById(`status-${id}`);
+      btn.disabled = true;
+
+      for (let i = 0; i < filenames.length; i++) {
+        const file = filenames[i];
+        status.innerText = `Playing clip ${i + 1} of ${filenames.length}: ${decodeURIComponent(file)}`;
+        
+        await new Promise((resolve) => {
+          const audio = new Audio(baseUrl + file);
+          audio.onended = resolve;
+          audio.onerror = () => {
+            console.error('Failed to play clip:', baseUrl + file);
+            resolve(); // Skip to next if missing
+          };
+          audio.play().catch(resolve);
+        });
+      }
+
+      status.innerText = 'Announcement completed.';
+      btn.disabled = false;
+    }
+
+    loadApp();
+  </script>
+</body>
+</html>
